@@ -1,2 +1,2 @@
 # MSc_Bioinfo_thesis
-"Genome-wide distribution of histone H1 variants in the T2T genome assembly"
+"Characterization and Comparative Analysis of Histone H1 Variants Genomic Distribution in the T2T-CHM13 Genome Assembly"
