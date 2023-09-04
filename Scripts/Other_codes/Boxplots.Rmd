@@ -1,0 +1,172 @@
+------------------------------------------------------------------------
+
+---
+title: "Boxplots"
+author: "Nel Marín"
+date: "5/6/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import files
+
+```{r Files}
+
+#Set the working directory
+setwd("~/TFM/8_Albert_comparison")
+
+#Load the TSV file using read.delim()
+dataframe_complete <- read.delim("~/TFM/5_TEs_mapping_&_repeat_analysis/thedataframe_complete.tsv", header = FALSE, stringsAsFactors = FALSE)
+
+#Change the column names
+colnames(dataframe_complete) <- c("seqname", "source", "feature", "start", "end",
+                                  "score", "strand", "frame", "class", "family",
+                                  "group", "H1.0", "H1.2",  "H1.3", "H1.4", "H1.5",
+                                  "H1X","H3K9me3", "H3K27me3",
+                                  "K9me3_AJV7", "K9me3_AJV84X")
+
+```
+
+## 2. Create the working dataframe
+
+```{r Dataframe}
+
+#Extract the useful columns 
+dataframe_complete <- dataframe_complete[, c(9,12:19)]
+
+#Extract the name of the samples
+histone_columns <- colnames(dataframe_complete)[2:9]
+
+#Store the character column separately
+class_column <- dataframe_complete$class
+
+```
+
+## 3. Filtering
+
+```{r Filtering}
+
+#Identify numeric columns
+numeric_cols <- sapply(dataframe_complete, is.numeric)
+
+#Calculate the number of rows to be removed
+removed_rows <- subset(dataframe_complete, 
+                       rowSums(dataframe_complete[, numeric_cols] == 0) 
+                       == sum(numeric_cols))
+
+#Order the removed rows
+removed_rows <- removed_rows[order(removed_rows$class), ]
+
+#Frequency of each class
+removed_rows_counts <- as.data.frame(table(removed_rows))
+removed_rows_counts <- removed_rows_counts[, c(1, 10)]
+
+#Total number of removed rows
+#print(nrow(removed_rows)) 
+#35648
+
+#Filter the original dataframe
+filtered_df <- dataframe_complete[rowSums(dataframe_complete[, numeric_cols] != 0) > 0, ]
+
+#Total number of kept rows
+#print(nrow(dataframe_complete) - nrow(removed_rows))
+#print(nrow(filtered_df))
+#4493937
+
+```
+
+## 4. Scaling
+
+```{r Scaling}
+
+#Scale the numeric columns using scale()
+#dataframe_reduced_scaled <- as.data.frame(scale(dataframe_reduced[, -1]))
+
+#Combine the scaled numeric columns with the character column
+#the_dataframe_reduced_scaled <- cbind(class_column, dataframe_reduced_scaled)
+#colnames(the_dataframe_reduced_scaled)[1] <- "class"
+
+```
+
+## 5. Boxplots
+
+#### 5.1. Boxplots with outliers
+
+```{r Boxplots without scaled data}
+
+library(ggplot2)
+
+#Class order based on the given boxplot 
+class_order <- c("Retroposon", "Low_complexity", "SINE", "Satellite", 
+                 "LINE", "LTR", "DNA", "RC", "srpRNA", "Unknown")
+
+#Loop through each histone column
+for (histone in histone_columns) {
+  #Create a ggplot object for each histone column
+  p <- ggplot(filtered_df, 
+              aes(x = factor(class, levels = class_order), y = .data[[histone]],
+                  fill = factor(class, levels = class_order))) +
+          geom_boxplot() +
+          labs(x = NULL, y = "Input-substracted Chip-Seq signal") +
+          scale_fill_manual(name = "Repeat class", 
+                            values = c("#627AEE", "#EEDD82", 
+                                       "#9BFF9A", "#FF0000", 
+                                       "#87CEFA", "#AB82FF", 
+                                       "#FF82AB", "#9ACD31", 
+                                       "#FFFF00", "#FF8247")) +
+          theme_light() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+          ylim(c(-0.2,0.2)) +
+          ggtitle(histone)
+  
+  print(p)
+  
+  #Save the plot with the title in the filename
+  ggsave(paste(histone, "_outliers.png", sep = ""), p, dpi = 300)
+}
+
+```
+
+#### 5.2. Boxplots without outliers
+
+```{r Boxplots with scaled data}
+
+library(ggplot2)
+
+#Class order based on the given boxplot 
+class_order <- c("Retroposon", "Low_complexity", "SINE", "Satellite", 
+                 "LINE", "LTR", "DNA", "RC", "srpRNA", "Unknown")
+
+#Loop through each histone column
+for (histone in histone_columns) {
+  #Create a ggplot object for each histone column
+  p <- ggplot(filtered_df, 
+              aes(x = factor(class, levels = class_order), y = .data[[histone]],
+                  fill = factor(class, levels = class_order))) +
+          geom_boxplot(outlier.shape = NA) +
+          labs(x = NULL, y = "Input-substracted Chip-Seq signal") +
+          scale_fill_manual(name = "Repeat class", 
+                            values = c("#627AEE", "#EEDD82", 
+                                       "#9BFF9A", "#FF0000", 
+                                       "#87CEFA", "#AB82FF", 
+                                       "#FF82AB", "#9ACD31", 
+                                       "#FFFF00", "#FF8247")) +
+          theme_light() +
+          theme(axis.text.x = element_blank(),  
+                axis.title.x = element_blank(),
+                axis.title.y = element_blank(),
+                #axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.position = "none",
+                plot.title = element_text(size = 18)) +
+          ylim(c(-0.2,0.2)) +
+          ggtitle(histone)
+
+  print(p)
+  
+  #Save the plot with the title in the filename
+  ggsave(paste(histone, ".png", sep = ""), p, width = 2, height = 4, dpi = 300)
+}
+```

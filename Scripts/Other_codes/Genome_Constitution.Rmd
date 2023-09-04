@@ -1,0 +1,201 @@
+---
+title: "Comparative_table"
+author: "Nel Marín"
+date: "4/7/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import the gtf file
+
+```{r Files, echo=FALSE}
+
+#Set the working directory
+setwd("~/PracticasIBMB/14_Real_comparative_table")
+
+#Load the GTF file using read.delim() (repeats)
+gtf_file <- read.delim("~/PracticasIBMB/14_Real_comparative_table/T2TCHM13v2.0_rmsk_TE.gtf", header = FALSE, stringsAsFactors = FALSE)
+
+#Change the column names
+colnames(gtf_file) <- c("seqname", "source", "feature", "start", "end",
+                        "score", "strand", "frame", "tax")
+
+```
+
+## 2. Modify the taxonomy column
+
+```{r Taxonomy column}
+
+#Copy the gtf_file dataframe
+repeats <- gtf_file
+
+#Extracting IDs using regular expressions
+repeats$group_id <- sub(".*gene_id\\s([^;]+).*", "\\1", repeats$tax)
+repeats$transcript_id <- sub(".*transcript_id\\s([^;]+).*", "\\1", repeats$tax)
+repeats$family_id <- sub(".*family_id\\s([^;]+).*", "\\1", repeats$tax)
+repeats$class_id <- sub(".*class_id\\s([^;]+).*", "\\1", repeats$tax)
+
+#Remove the columns tax and transcript_id
+repeats <- repeats[, c(-9,-11)]
+
+```
+
+## 3. Remove blacklisted regions
+
+```{r Blacklist, echo=FALSE}
+
+library(GenomicRanges)
+
+#Load the BED file (blacklist regions)
+bed_file <- read.delim("~/PracticasIBMB/14_Real_comparative_table/T2T.excluderanges_from_R_bioconductor_sorted.bed", header = FALSE, stringsAsFactors = FALSE)
+
+#Change the column names
+colnames(bed_file) <- c("chrom", "chromStart", "chromEnd", "length", "*",
+                        "description")
+
+#Create GRanges objects from the repeats and blacklist dataframes
+repeats_gr <- with(repeats, GRanges(seqnames = seqname, ranges = IRanges(start, end)))
+blacklist_gr <- with(bed_file, GRanges(seqnames = chrom, ranges = IRanges(chromStart, chromEnd)))
+
+#Remove repeats that overlap with blacklisted regions
+non_overlapping_repeats <- subsetByOverlaps(repeats_gr, blacklist_gr, invert = TRUE)
+
+# Get the indices of the non-overlapping repeats in the original dataframe
+non_overlapping_indices <- match(as.character(non_overlapping_repeats), as.character(repeats_gr))
+
+# Create the filtered dataframe with non-overlapping repeats
+repeats_filtered <- repeats[non_overlapping_indices, ]
+
+# Reset row names of the filtered dataframe
+row.names(repeats_filtered) <- seq(1:nrow(repeats_filtered))
+
+#Convert the filtered repeats GRanges object back to a dataframe
+repeats_noblacklist <- as.data.frame(repeats_filtered)
+
+```
+
+## 4. Remove DNA? class
+
+```{r noDNA}
+
+#Check the classes in the class_id column
+unique(repeats_filtered$class_id)
+
+#Get the DNA? class repeats
+repeats_DNAi <- subset(repeats_noblacklist, class_id == "DNA?")
+
+#Remove the DNA? class repeats
+repeats_nobl_noDNAi <- subset(repeats_noblacklist, class_id != "DNA?")
+
+```
+
+## 5. Analysis of the original gtf file (repeats)
+
+```{r repeats}
+
+### Total number of repeats
+nrow(repeats)
+
+
+#################################################### COUNTS
+#Class
+og_class_table <- as.data.frame(table(repeats$class_id))
+#Family
+og_family_table1 <- as.data.frame(table(repeats$family_id, repeats$class_id))
+og_family_table1 <- subset(og_family_table1, Freq != 0)
+#Group
+og_group_table1 <- as.data.frame(table(repeats$group_id, repeats$family_id, repeats$class_id))
+og_group_table1 <- subset(og_group_table1, Freq != 0)
+og_group_freq <- as.data.frame(table(og_group_table1$Var2, og_group_table1$Var3))
+og_group_freq1 <- subset(og_group_freq, Freq != 0)
+#ADD LABELS
+
+
+#################################################### COUNT PERCENTAGE
+#Calculate the percentages for each family
+og_family_table1$percentage <- round(100*og_family_table1$Freq/
+                                     sum(og_family_table1$Freq), 
+                                     digits = 2)
+#ADD LABELS
+
+
+#################################################### OCCUPANCY
+#Set the genome length
+genome_length <- 3117292070
+#Subset a new dataframe with the start and end coordinates
+coord_df <- repeats[, c(4, 5, 9, 10, 11)]
+#Create a new column with the length of each repeat
+coord_df$length <- coord_df$end - coord_df$start
+#Create a new column combining group and family
+coord_df$combined_name <- paste(coord_df$family_id, coord_df$class_id, sep = "/")
+#Calculate the sum of length for each family in coord_df
+family_lengths <- tapply(coord_df$length, coord_df$combined_name, sum)  
+#Create the same new column combining group and family to the summary df
+og_family_table1$combined_name <- paste(og_family_table1$Var1, og_family_table1$Var2, sep = "/")
+#Add the sum of lengths as a new column in summary_df
+og_family_table1$length <- family_lengths[match(og_family_table1$combined_name, 
+                                          names(family_lengths))]
+
+#################################################### OCCUPANCY PERCENTAGE
+#Calculate the percentages for each family
+og_family_table1$percentage_length <- round(100*og_family_table1$length/genome_length, digits = 2)
+
+```
+
+## 6. Analysis of the no blacklist file (repeats_noblacklist)
+
+```{r repeats_noblacklist}
+
+### Total number of repeats
+nrow(repeats_noblacklist)
+
+
+#################################################### COUNTS
+#Class
+nobl_class_table <- as.data.frame(table(repeats_noblacklist$class_id))
+#Family
+nobl_family_table1 <- as.data.frame(table(repeats_noblacklist$family_id, repeats_noblacklist$class_id))
+nobl_family_table1 <- subset(nobl_family_table1, Freq != 0)
+#Group
+nobl_group_table1 <- as.data.frame(table(repeats_noblacklist$group_id, repeats_noblacklist$family_id, repeats_noblacklist$class_id))
+nobl_group_table1 <- subset(nobl_group_table1, Freq != 0)
+nobl_group_freq <- as.data.frame(table(nobl_group_table1$Var2, nobl_group_table1$Var3))
+nobl_group_freq1 <- subset(nobl_group_freq, Freq != 0)
+#ADD LABELS
+
+
+#################################################### COUNT PERCENTAGE
+#Calculate the percentages for each family
+nobl_family_table1$percentage <- round(100*nobl_family_table1$Freq/
+                                       sum(og_family_table1$Freq), 
+                                       digits = 2)
+#ADD LABELS
+
+
+#################################################### OCCUPANCY
+#Set the genome length
+genome_length <- 3117292070
+#Subset a new dataframe with the start and end coordinates
+coord_df_nobl <- repeats_noblacklist[, c(4, 5, 9, 10, 11)]
+#Create a new column with the length of each repeat
+coord_df_nobl$length <- coord_df_nobl$end - coord_df_nobl$start
+#Create a new column combining group and family
+coord_df_nobl$combined_name <- paste(coord_df_nobl$family_id, coord_df_nobl$class_id, sep = "/")
+#Calculate the sum of length for each family in coord_df
+family_lengths_nobl <- tapply(coord_df_nobl$length, coord_df_nobl$combined_name, sum)  
+#Create the same new column combining group and family to the summary df
+nobl_family_table1$combined_name <- paste(nobl_family_table1$Var1, nobl_family_table1$Var2, sep = "/")
+#Add the sum of lengths as a new column in summary_df
+nobl_family_table1$length <- family_lengths_nobl[match(nobl_family_table1$combined_name, 
+                                          names(family_lengths_nobl))]
+
+#################################################### OCCUPANCY PERCENTAGE
+#Calculate the percentages for each family
+nobl_family_table1$percentage_length <- round(100*nobl_family_table1$length/genome_length, digits = 2)
+
+```
+
+## 

@@ -1,0 +1,204 @@
+---
+title: "Sankey_diagram"
+author: "Nel Marín"
+date: "1/9/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Getting started
+
+```{r Start, echo=FALSE}
+
+#Set the working directory
+setwd("~/TFM/20_Sankey_diagram")
+
+#Install the package karyoploteR
+#BiocManager::install("karyoploteR")
+library(karyoploteR)
+```
+
+## 2. KaryoploteR
+
+```{r karyoploteR, echo=FALSE}
+
+#Prepare the genome file (bed)
+bed_genome <- as.data.frame(read.table("T2TCHM13v2.0_chrom.sizes", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+bed_genome$V3 <- cbind(rep(1, times = nrow(bed_genome)))
+bed_genome <- bed_genome[, c("V1", "V3", "V2")]
+colnames(bed_genome) <- c("chr", "start", "end")
+hs1_genome <- toGRanges(bed_genome)
+
+
+#Prepare the cytobands file (bed)
+bed_cytobands <- as.data.frame(read.table("T2TCHM13v2.0_Cytobands_Ideogram_UCSC.bed", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+colnames(bed_cytobands) <- c("chr", "start", "end", "name", "gieStain")
+hs1_cytobands <- toGRanges(bed_cytobands)
+
+
+#Upload the repeat file (gtf)
+gtf_repeats <- as.data.frame(read.table("T2TCHM13v2.0_rmsk_TE.gtf", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+gtf_repeats <- subset(gtf_repeats, select = c(1,4,5,9))
+hs1_repeats <- toGRanges(gtf_repeats)
+#(hg19)
+gtf_repeats_2 <- as.data.frame(read.table("hg19_rmsk.txt", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+
+
+#Plot
+#hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, plot.type = 6)
+#kpPlotRegions(hs1_kp, data=many.regions)
+#TOO MANY INFORMATION
+
+#Subset SVAs
+hs1_SVAs <- subset(gtf_repeats, grepl('family_id "SVA";', V9))
+hg19_SVAs <- subset(gtf_repeats_2, grepl("SVA", V4))
+hg19_SVAs <- hg19_SVAs[nchar(hg19_SVAs$V1) < 6, ]
+hg19_SVAs_sorted <- hg19_SVAs[order(hg19_SVAs$V1, hg19_SVAs$V2), ]
+
+```
+
+## 3. LiftOver
+
+```{r LiftOver}
+
+#BiocManager::install("liftOver")
+library(liftOver)
+
+#PREPARE DATA
+#hs1
+colnames(hs1_SVAs) <- c("Chr", "Start", "End", "Group")
+SVA_column <- substr(hs1_SVAs$Group, start = 10, stop = 14)
+hs1_SVAs_final <- cbind(hs1_SVAs, SVA_column)
+hs1_SVAs_final <- hs1_SVAs_final[, c(1,2,3,5)]
+colnames(hs1_SVAs_final) <- c("Chr", "Start", "End", "Group")
+#hg19
+hg19_SVAs_final <- hg19_SVAs_sorted[, c(1,2,3,4)]
+colnames(hg19_SVAs_final) <- c("Chr", "Start", "End", "Group")
+
+
+#LIFTOVER
+#Save 
+write.table(hg19_SVAs_final[, c(1,2,3)], file = "hg19_SVAs.bed", sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+#Done by the UCSC website
+hg19_SVAs_liftover <- as.data.frame(read.table("hglft_genome.bed", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+hg19_SVAs_liftover_final <- hg19_SVAs_liftover[, c(1,2,3,4)]
+#Merge the SVAs (+1 added to match coordinates in the Start)
+hg19_SVAs_final$Comb <- paste(hg19_SVAs_final$Chr, ":", 
+                              hg19_SVAs_final$Start+1, "-",
+                              hg19_SVAs_final$End, sep = "")
+colnames(hg19_SVAs_liftover_final) <- c("Chr", "Start", "End", "Comb")
+
+#Loop
+hg19_SVAs_liftover_final$Group <- NA
+for (i in 1:nrow(hg19_SVAs_liftover_final)) {
+  #Find the corresponding row in hg19_SVAs_final where Comb matches
+  match_row <- hg19_SVAs_final$Comb == hg19_SVAs_liftover_final$Comb[i]
+  #If a matching row is found, add the Group value to hg19_SVAs_liftover_final
+  if (any(match_row)) {
+    hg19_SVAs_liftover_final$Group[i] <- hg19_SVAs_final$Group[match_row]
+  }
+}
+
+```
+
+## 4. Sankey Diagram
+
+```{r Sankey}
+
+#install.packages("networkD3")
+library(networkD3)
+#install.packages("ggsankey")
+#library(ggsankey)
+#library(ggplot2)
+library(dplyr)
+
+#CHECKPOINT FILES###############################################################
+STAR_hs1 <- hs1_SVAs_final
+STAR_hg19 <- hg19_SVAs_liftover_final[, -4]
+summary_hg19 <- table(STAR_merged$Group.y)
+summary_hs1 <- table(STAR_merged$Group.x)
+################################################################################
+
+#MERGE
+STAR_merged <- merge(STAR_hs1, STAR_hg19, by=c("Chr", "Start", "End"), all=TRUE)
+#write.table(STAR_merged, file = "STAR_merged.bed", sep = "\t", quote = FALSE, row.names = FALSE)
+#STAR_merged[is.na(STAR_merged)] <- 0
+#STAR_merged$id <- 1:nrow(STAR_merged)
+
+#COLLAPSE
+STAR_collapsed <- data.frame()
+new_row <- STAR_merged[1,]
+for (i in 2:nrow(STAR_merged)) {
+  if (STAR_merged[i, "Start"] > STAR_merged[i-1, "End"]) {
+    STAR_collapsed <- rbind(STAR_collapsed, new_row)
+    new_row <- STAR_merged[i,]
+  } else {
+    new_row[is.na(new_row)] <- STAR_merged[i, is.na(new_row)]
+  }
+}
+STAR_collapsed <- rbind(STAR_collapsed, new_row)
+
+#CHECKPOINT FILES###############################################################
+STAR_collapsed
+new_summary_hg19 <- table(STAR_collapsed$Group.y)
+new_summary_hs1 <- table(STAR_collapsed$Group.x)
+################################################################################
+
+#PLOT
+nodes <- data.frame("name" = c("SVA_A", "SVA_B", "SVA_C", 
+                               "SVA_D", "SVA_E", "SVA_F",
+                               "SVA_A", "SVA_B", "SVA_C", 
+                               "SVA_D", "SVA_E", "SVA_F"))
+
+sankey_data <- table(STAR_collapsed$Group.x, STAR_collapsed$Group.y)
+links <- as.data.frame(sankey_data)
+links <- links[, c("Var2", "Var1", "Freq")]
+colnames(links) <- c("source", "target", "value")
+#source = hg19
+#target = hs1
+replacement_values_hg19 <- c("SVA_A" = 0, "SVA_B" = 1, "SVA_C" = 2, 
+                             "SVA_D" = 3, "SVA_E" = 4, "SVA_F" = 5)
+replacement_values_hs1 <- c("SVA_A" = 6, "SVA_B" = 7, "SVA_C" = 8, 
+                            "SVA_D" = 9, "SVA_E" = 10, "SVA_F" = 11)
+links$source <- replacement_values_hg19[links$source]
+links$target <- replacement_values_hs1[links$target]
+links <- rbind(links, c(6,6,2166))
+links <- rbind(links, c(7,7,378))
+links <- rbind(links, c(8,8,107))
+links <- rbind(links, c(9,9,177))
+links <- rbind(links, c(10,10,766))
+links <- rbind(links, c(11,11,219))
+
+nodes$group <- as.factor(c("0", "1", "2", "3", "4", "5", 
+                           "6", "7", "8", "9", "10", "11"))
+links$group <- as.factor(c(rep("convert", times = 36), rep("new", times = 6)))
+mycolor <- 'd3.scaleOrdinal() .domain(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "convert", "new"]) .range(["#8686EA", "#95A5FF", "#A6EFFF", "#CBFFCA", "#FFF7A8", "#FFC5AE", "#19198C", "#193DFF", "#19D8FF", "#8AFF87", "#FFE819", "#FF5919", "#c4c4c4", "white"])'
+
+s <- sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "source", Target = "target",
+              Value = "value", NodeID = "name",
+              fontSize = 30, nodeWidth = 60)
+
+S <- sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "source", Target = "target",
+              Value = "value", NodeID = "name",
+              fontSize = 30, nodeWidth = 60, colourScale = mycolor, 
+              NodeGroup = "group",
+              width = 900, height = 900)
+
+
+#NEW SVAs
+new_SVAs_T2T <- subset(STAR_collapsed, is.na(STAR_collapsed$Group.y))
+new_SVAs_T2T_values <- table(new_SVAs_T2T$Group.x)
+
+#SAVE
+#install.packages("htmlwidgets")
+library(htmlwidgets)
+saveWidget(S, file=paste0(getwd(), "/sankeyNEW.html"))
+#install.packages("webshot")
+library(webshot)
+webshot("sankeyNEW.html", "sankeyNEW.png", zoom = 2, vwidth = 1000, vheight = 750)
+```

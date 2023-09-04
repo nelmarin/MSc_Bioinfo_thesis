@@ -1,0 +1,321 @@
+---
+title: "Group_count"
+author: "Nel Marín"
+date: "17/5/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import files
+
+Import the files needed from other folder.
+
+```{r Files}
+
+#Set the working directory
+setwd("~/TFM/6_Genome_characterization")
+
+#Load the TSV file using read.delim()
+dataframe_complete <- read.delim("~/TFM/5_TEs_mapping_&_repeat_analysis/thedataframe_complete.tsv", header = FALSE, stringsAsFactors = FALSE)
+
+#Check the loaded data
+#head(dataframe_complete)
+
+#Change the column names
+colnames(dataframe_complete) <- c("seqname", "source", "feature", "start", "end",
+                                  "score", "strand", "frame", "class", "family",
+                                  "group", "H1.0", "H1.2",  "H1.3", "H1.4", "H1.5",
+                                  "H1X","H3K9me3_SRR12349402", "K27me3",
+                                  "K9me3_AJV7", "K9me3_AJV84X")
+
+```
+
+## 2. Construct a dataframe for each family
+
+In order to work more efficiently, I will create one dataframe per family category.
+
+```{r Family dataframes}
+
+#Extract the taxonomy columns
+df_tax <- dataframe_complete[, c(9, 10, 11)] #4,529,585 entries
+
+#Get the unique class categories
+classes <- sort(unique(df_tax$class))
+
+#Get the unique family categories
+families <- sort(unique(df_tax$family))
+
+#Create an empty dataframe to store the count results
+family_summary <- data.frame(family = character(), 
+                             n_repeats = numeric(), 
+                             stringsAsFactors = FALSE)
+
+#Create one dataframe per family
+for (category in families) {
+  #Subset the dataframe for the current category
+  df_category <- subset(df_tax, family == category)
+  assign(paste0("df_", category), df_category)
+  #Get the number of rows in the dataframe
+  row_count <- nrow(df_category)
+  # Add the category and row count to the result dataframe
+  family_summary <- rbind(family_summary, data.frame(family = category,
+                                                     n_repeats = row_count,
+                                                     stringsAsFactors = FALSE))
+}
+
+#Remove the temporal "df_category" variable
+rm(df_category)
+
+```
+
+## 3. Get the repeat counts for each family
+
+Create one dataframe per family to store the counts of each group.
+
+```{r Repeat counts}
+
+# Loop through the dataframes
+for (i in 1:length(families)) {
+  #Create a variable that temporarily stores each dataframe
+  temp_df <- get(paste0("df_", families[i]))
+  #Create an empty dataframe to store the results
+  temp_result_df <- data.frame(group = character(), 
+                               count = integer(), 
+                               stringsAsFactors = FALSE)
+  #Calculate the counts for each group in the dataframe
+  counts <- aggregate(temp_df$group, 
+                      by = list(class = temp_df$class, 
+                                family = temp_df$family, 
+                                group = temp_df$group), 
+                      FUN = length)
+  #Rename the columns of the counts dataframe
+  colnames(counts) <- c("class", "family", "group", "count")
+  #Add the counts to the result dataframe
+  temp_result_df <- rbind(temp_result_df, counts)
+  #Order the groups from the least appearences to the most
+  temp_result_df <- temp_result_df[order(temp_result_df$count), ]
+  #Change rownames
+  rownames(temp_result_df) <- seq(1, nrow(temp_result_df))
+  #Levels and factors
+  levels(temp_result_df$group) <- temp_result_df$group
+  #Change the name of the dataframe
+  assign(paste0("df_count_", families[i]), temp_result_df)
+}
+
+#Remove the temporal "df_category" variable
+rm(temp_df)
+rm(temp_result_df)
+
+```
+
+## 4. Plot the barplots
+
+Create one dataframe per family to store the counts of each group.
+
+```{r Density plots}
+
+library(ggplot2)
+
+#ALTERNATIVE WITHOUT GGPLOT2
+#ceiling(number / 1000) * 1000
+#barplot(df_count_Satellite$count, 
+#             col = rgb(0.8,0.1,0.1,0.6),
+#             space = 0,
+#             ylim = c(0, ceiling(max(df_count_Satellite$count)/1000)*1000),
+#             main = "Satellite")
+#png(filename = "barplot.png", width = 600, height = 150)
+#barplot(df_count_Satellite$count, 
+#             col = rgb(0.8,0.1,0.1,0.6),
+#             space = 0,
+#             ylim = c(0, ceiling(max(df_count_Satellite$count)/1000)*1000),
+#             main = "Satellite")
+#graphics.off()
+
+#Define colors for each class
+class_colors <- c("#FB83DD", "#4DB8FF", "#C8C0A8", "#9898FC", "#C8F63F",
+                  "#6C99DA", "#FF4444", "#5EF49E", "#FFD700", "#FE934B")
+#class_colors[3] <- "#FFF700"
+#class_colors[5] <- "#00A642"
+#class_colors[7] <- "#008CFF"
+#class_colors[8] <- "#0400FF"
+#class_colors[9] <- "#9900FF"
+
+#Set the annotation colors
+annotation_class_colors <- list(class = classes, class_color = setNames(class_colors, levels(classes)))
+
+#Color mapping
+color_mapping <- setNames(annotation_class_colors$class_color, annotation_class_colors$class)
+
+#Get a list of objects in the current environment
+objects <- ls()
+
+#Filter objects that start with "df_count"
+df_names <- objects[grep("^df_count", objects)]
+
+#Loop through the data frames and perform the desired operations
+for (df_name in df_names) {
+  #Get the data frame by its name
+  df <- get(df_name)
+  #Needed to avoid reordering of groups
+  df$group <- factor(df$group, levels = df$group)
+  #Create the barplot using ggplot2
+  b <- ggplot(df, aes(x = group, y = count)) +
+              geom_col(aes(fill = class), width = 1) +
+              scale_fill_manual(values = color_mapping) +
+              theme_void() +
+              theme(panel.grid = element_blank(),
+                    axis.text = element_blank(),
+                    axis.title = element_blank(),
+                    axis.ticks = element_blank()) +
+              guides(fill = "none")
+  #Save the plot using ggsave
+  plot_name <- gsub("\\?", "_", df_name) #"?" causes ERROR
+  ggsave(paste0(plot_name, "_barplot_2.png"), b, dpi = 300, width = 8, height = 2)
+}
+
+```
+
+## 5. Plot the pie chart at class level
+
+First, get the count and percentage data.
+
+```{r Process class data}
+
+#Calculate the frequencies of each class
+class_counts <- table(dataframe_complete$class)
+
+#Create a data frame for the pie chart
+chart_data <- data.frame(class = names(class_counts), count = class_counts)
+chart_data <- chart_data[, -2]
+colnames(chart_data) <- c("class", "count")
+
+#Calculate percentages
+chart_data$percentage <- round(100 * chart_data$count / sum(chart_data$count), digits = 2)
+
+###############################################################
+#Calculate the frequencies of each family
+family_counts <- table(dataframe_complete$family)
+
+#Create a data frame for the pie chart
+family_chart_data <- data.frame(family = names(family_counts), 
+                                count = family_counts)
+family_chart_data <- family_chart_data[, -2]
+colnames(family_chart_data) <- c("family", "count")
+
+#Calculate percentages
+family_chart_data$percentage <- round(100 * family_chart_data$count / sum(family_chart_data$count), digits = 2)
+
+###############################################################
+#New colors for the pie chart
+#NEW_class_colors <- c("#f36460d8", "#f4b757d8", "#ecf056d8", "#83ef5ed8", 
+#                      "#5ec282d8", "#5bededd8", "#5aabf4d8", "#605af5d8",
+#                      "#a75ff1d8", "#f464bcd8")
+
+NEW_class_colors <- c("#5ef49e", "#4db8ff", "#9898fc", "#fb83dd", 
+                      "#ff4444", "#fe934b", "#6c99da", "#c8f63f",
+                      "#c8c0a8", "#ffd700")
+
+#NEW_class_colors <- c("#fcdaf4", "#c6e8ff", "#e7e3d8", "#dedefd", 
+#                      "#e5f6b2", "#bed1f0", "#ffd8d8", "#bdfad8",
+#                      "#fdf1ac", "#faddc9")
+```
+
+Then, plot the pie chart.
+
+```{r Pie chart class}
+
+#ALTERNATIVE
+#Calculate the frequencies of each class
+#class_counts <- table(dataframe_complete$class)
+
+#Create the pie chart
+#pie(class_counts, main = "Class Distribution", col = class_colors, 
+#     labels = paste0(names(class_counts), "\n", 
+#                   round(100 * class_counts / sum(class_counts), 1), "%"), 
+#     cex.labels = 0.8)
+
+#Add a legend
+#legend("topright", legend = names(class_counts), fill = class_colors, cex = 1,
+#       inset = 0.02, text.width = 0.5)
+
+library(ggplot2)
+library(ggrepel)
+
+chart_data$class <- factor(chart_data$class, levels = chart_data$class[order(-chart_data$percentage)])
+
+#Create the pie chart with label placement
+chart <- ggplot(chart_data, aes(x = "", y = count, fill = class)) +
+         geom_bar(width = 1, stat = "identity", color = "black") +
+         coord_polar("y", start = 0) +
+         geom_label_repel(aes(label = paste0(class, "\n", percentage, "%")), 
+                              position = position_stack(vjust = 0.5), max.overlaps = 15) +
+         labs(title = "Repeats distribution in the T2T genome assembly based on the repeat class") +
+         scale_fill_manual(values = NEW_class_colors) +
+         theme_void()
+
+#Display the pie chart
+print(chart)
+
+#Save the pie chart
+ggsave("Albert_class_piechart.png", chart, dpi = 300, width = 8, height = 8)
+
+```
+
+## 6. Plot the pie chart at family level
+
+First, get the count and percentage data. Then, plot the pie chart.
+
+```{r Family pie chart}
+
+library(ggplot2)
+library(ggrepel)
+
+for (i in 1:length(classes)) {
+  #Subset the dataframe based on the class
+  subset_data <- subset(dataframe_complete, class == classes[i])
+
+  #Calculate the frequencies of each family
+  family_counts <- table(subset_data$family)
+
+  #Create a dataframe for the pie chart
+  fam_chart_data <- data.frame(class = names(family_counts), count = family_counts)
+  fam_chart_data <- fam_chart_data[, -2]
+  colnames(fam_chart_data) <- c("family", "count")
+
+  #Calculate percentages
+  fam_chart_data$percentage <- round(100 * fam_chart_data$count / sum(fam_chart_data$count), digits = 2)
+
+  #New colors for the pie chart
+  n_colors <- nrow(fam_chart_data)
+  fam_colors <- colorRampPalette(c(class_colors[i], "white"))(n_colors)
+
+  #Title of the plot
+  current_title <- paste0("Repeats distribution in the class ", classes[i])
+  
+  #Create the pie chart with label placement
+  subchart <- ggplot(fam_chart_data, aes(x = "", y = count, fill = family)) +
+              geom_bar(width = 1, stat = "identity", color = "black") +
+              coord_polar("y", start = 0) +
+              geom_label_repel(data = subset(fam_chart_data, percentage > 5),
+                               aes(label = paste0(family, "\n", percentage, "%")), 
+                               position = position_stack(vjust = 0.5),
+                               size = 5) +
+              #labs(title = current_title) +
+              scale_fill_manual(values = fam_colors) +
+              theme_void() +
+              theme(text = element_text(size = 12)) + 
+              theme(legend.position = "none")
+
+  #Display the pie chart
+  print(subchart)
+
+  #Filename
+  filename <- paste0(classes[i], "_piechart_4.png")
+  
+  #Save the pie chart
+  ggsave(filename, subchart, dpi = 300, width = 6, height = 6)
+}
+```

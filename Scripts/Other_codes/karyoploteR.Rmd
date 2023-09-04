@@ -1,0 +1,121 @@
+---
+title: "KaryoploteR"
+author: "Nel Marín"
+date: "19/7/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Getting started
+
+```{r Start, echo=FALSE}
+
+#Set the working directory
+setwd("~/PracticasIBMB/16_karyoploteR")
+
+#Install the package karyoploteR
+#BiocManager::install("karyoploteR")
+
+```
+
+## 2. Plot an ideogram
+
+The first step when creating a karyoplot is to create the empty ideogram plot where data will later be added.
+
+The `plotKaryotype` function does just that and returns the *karyoplot* object. We will need this object later on when we need to add data to the plot. By default it will create a karyoplot of the human genome hg19.
+
+```{r Ideogram}
+
+library(karyoploteR)
+library(BSgenome)
+library(ggplot2)
+
+######## Plot the hg19 karyotype
+hg19_kp <- plotKaryotype()
+
+######## Plot the T2T karyotype
+# Prepare the genome file (bed)
+bed_genome <- as.data.frame(read.table("T2TCHM13v2.0_chrom.sizes", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+bed_genome$V3 <- cbind(rep(1, times = nrow(bed_genome)))
+bed_genome <- bed_genome[, c("V1", "V3", "V2")]
+colnames(bed_genome) <- c("chr", "start", "end")
+hs1_genome <- toGRanges(bed_genome)
+
+# Prepare the cytobands file (bed)
+bed_cytobands <- as.data.frame(read.table("T2TCHM13v2.0_Cytobands_Ideogram_UCSC.bed", header = FALSE, sep="\t", stringsAsFactors=FALSE, quote=""))
+colnames(bed_cytobands) <- c("chr", "start", "end", "name", "gieStain")
+hs1_cytobands <- toGRanges(bed_cytobands)
+
+# Plot both the T2T genome and the cytobands
+png("karyoplot.png", width = 1600, height = 1000)
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, plot.type = 6)
+dev.off()
+
+#Save as an image
+png("plot.png", width = 1100, height = 700)
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, chromosomes= c("chr8", "chr13"))
+kpAddBaseNumbers(hs1_kp, tick.dist = 10000000, tick.len = 10, tick.col="red", cex=1, minor.tick.dist = 1000000, minor.tick.len = 5, minor.tick.col = "gray")
+dev.off()
+
+png("plot1.png", width = 1800, height = 700)
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, chromosomes= "chr1")
+kpAddBaseNumbers(hs1_kp, tick.dist = 10000000, tick.len = 10, tick.col="red", cex=1, minor.tick.dist = 1000000, minor.tick.len = 5, minor.tick.col = "gray")
+dev.off()
+
+#Save as an image
+#ggsave("karyotype_chr1.png", plot = hs1_kp, device = "png")
+
+
+########
+getCytobandColors()
+#gneg=white, gpos100=black, stalk=blue, acen=red, gvar=grey/red
+########
+
+#.libPaths()
+
+
+```
+
+## 3. Ideogram customization
+
+In some cases it might be interesting to add a guide of the base numbering or the cytoband names to the ideogram.
+
+```{r Customization}
+
+# Add the base numbers to a genome
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands) + kpAddBaseNumbers(hs1_kp)
+
+# Add the cytoband names to an ideogram
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, chromosomes = "chr13") +
+kpAddCytobandLabels(hs1_kp)
+
+```
+
+## 4. Plot continuous data
+
+```{r Continuous}
+
+H1.0_13 <- as.data.frame(read.table("ChIP_H1_0_NoDox_AJV32L_T47D6c2_T2T.wig_13", header = TRUE, stringsAsFactors=FALSE, quote=""))
+
+hs1_kp <- plotKaryotype(genome = hs1_genome, cytobands = hs1_cytobands, chromosomes = "chr13")
+kpArea(hs1_kp, chr="chr13", x=1:113566686, y=H1.0_13$fixedStep.chrom.chr13.start.1.step.50.span.50)
+kpAxis(kp, ymin = 0, ymax=1)
+
+####### ERROR #######
+
+```
+
+## 5. Alternative
+
+```{r Alternative RIdeogram}
+
+#install.packages("RIdeogram")
+library(RIdeogram)
+
+data(human_karyotype, package = "RIdeogram")
+ideogram(human_karyotype, overlaid = bed_cytobands)
+convertSVG("chromosome.svg", device = "png")
+```

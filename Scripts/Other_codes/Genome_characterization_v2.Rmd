@@ -1,0 +1,103 @@
+---
+title: "Genome_characterization_v2"
+author: "Nel Marín"
+date: "1/6/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import files
+
+```{r Files}
+
+#Set the working directory
+setwd("~/PracticasIBMB/8_Albert_comparison")
+
+#Load the TSV file using read.delim()
+dataframe_complete <- read.delim("~/PracticasIBMB/5_TEs_mapping_&_repeat_analysis/thedataframe_complete.tsv", header = FALSE, stringsAsFactors = FALSE)
+
+#Check the loaded data
+#head(dataframe_complete)
+
+#Change the column names
+colnames(dataframe_complete) <- c("seqname", "source", "feature", "start", "end",
+                                  "score", "strand", "frame", "class", "family",
+                                  "group", "H1.0", "H1.2",  "H1.3", "H1.4", "H1.5",
+                                  "H1X","H3K9me3_SRR12349402", "K27me3",
+                                  "K9me3_AJV7", "K9me3_AJV84X")
+
+```
+
+## 2. Construct the summary dataframe
+
+```{r New dataframe}
+
+#Reduce the original dataframe
+tax_df <- dataframe_complete[, c(9, 10)]
+
+#Create the summary dataframe (similar to the excel one)
+summary_df <- unique(tax_df)
+
+#Order the unique rows based on the class and family
+summary_df <- summary_df[order(summary_df$family), ]
+
+#New rownames
+rownames(summary_df) <- seq(1, nrow(summary_df))
+
+```
+
+## 3. Calculate the counts and percentage (already done)
+
+```{r Counts}
+
+########################################################### COUNTS
+#Get the counts for each family
+family_counts <- as.data.frame(table(tax_df$family))
+#Change the names of the columns
+colnames(family_counts) <- c("family", "counts")
+#Check that the families are in the same order
+#summary_df$counts <- family_counts$counts
+#Append to the summary_df
+summary_df$counts <- family_counts$counts
+
+########################################################### PERCENTAGES
+#Calculate the percentages for each family
+summary_df$percentage <- round(100*summary_df$count/sum(summary_df$count), 
+                               digits = 2)
+
+########################################################### ORDER
+#Reorder to copy to excel
+summary_df <- summary_df[order(summary_df$class, summary_df$family), ]
+rownames(summary_df) <- seq(1, nrow(summary_df))
+#Save the table to copy to excel
+#write.table(summary_df, "table.tsv", sep = "\t")
+```
+
+## 4. Calculate the occupancy and percentage
+
+```{r Occupancy}
+
+#Set the genome length (calculated in excel)
+genome_length <- 3117292070
+#Subset a new dataframe with the start and end coordinates
+coord_df <- dataframe_complete[, c(4, 5, 9, 10)]
+#Create a new column with the length of each repeat
+coord_df$length <- coord_df$end - coord_df$start
+
+########################################################### OCCUPANCY
+# Calculate the sum of length for each family in coord_df
+family_lengths <- tapply(coord_df$length, coord_df$family, sum)  
+# Add the sum of lengths as a new column in summary_df
+summary_df$length <- family_lengths[match(summary_df$family, 
+                                          names(family_lengths))]
+
+########################################################### PERCENTAGES
+#Calculate the percentages for each family
+summary_df$percentage_length <- round(100*summary_df$length/genome_length, 
+                                      digits = 2)
+#Save the table to copy to excel
+write.table(summary_df, "table.tsv", sep = "\t")
+```

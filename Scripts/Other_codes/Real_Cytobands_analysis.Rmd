@@ -1,0 +1,304 @@
+---
+title: "Real_Cytobands_analysis"
+author: "Nel Marín"
+date: "27/4/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import mapping files
+
+First of all, all of the mapping files were imported to R. In order to import them all at once, a loop was designed to read each file and save it in a variable with a clear name.
+
+```{r Import files}
+
+#Set the path to the directory where your files are located
+dir_path <- "~/TFM/4_Real_Cytoband_mapping"
+
+#Get a list of all the files in the directory
+file_list <- list.files(path = dir_path, pattern = "*.txt")
+var_list <- list()
+
+#Use a loop to read each file and save it in a variable
+for (file_name in file_list) {
+  #Extract the relevant part of the file name
+  var <- gsub("_T2T_vsCytobands.txt", "", file_name)
+  #Create a list with the var names
+  var_list <- c(var_list, var)
+  #Read in the file and save it in a variable with the extracted name
+  assign(var, read.delim(paste(dir_path, file_name, sep = "/"), header = FALSE))
+}
+```
+
+## Bind & rename columns
+
+A new dataset was created. First, it was initialized by extracting the first five columns of any dataframe (shared information); and then, from each dataframe extract the last column that contains the ChIPseq signal. Regular expressions were used to keep the informative parts of the names and the columns of the new dataframe were replaced.
+
+```{r Bind and rename}
+
+#Initialize the dataframe that will store the results
+Cytobands_mapping <- ChIP_H1_0_NoDox_AJV32L_T47D6c2[, 1:5]
+
+#var_list as a vector, not a list
+var_list <- unlist(var_list)
+#Create a list of the dataframes
+df_list <- mget(var_list)
+
+#Loop over the datasets and extract the last column of each one
+for (df in df_list) {
+  #Extract the last column
+  last_col <- df[, 6]
+  #Append the last column to the result data frame
+  Cytobands_mapping <- cbind(Cytobands_mapping, last_col)
+}
+
+#Use gsub() function with a regular expression to keep the necessary parts
+legend_list <- sub("^(ChIP_)(.*)(NoDox_)(.*)(_T47)(.*)$", "\\2\\4", var_list)
+legend_list <- sub("^(ChIP_)(.*)(_GSE.*)$", "\\2\\4", legend_list)
+legend_list <- sub("^(ChIP_)(.*)(NoDox_)(.*)$", "\\2\\4", legend_list)
+
+#Change the column names of the new dataset
+colnames(Cytobands_mapping) <- c("chrom", "chromStart", "chromEnd", "name", "gieStain", legend_list)
+
+#Change the order of the groups
+Cytobands_mapping$gieStain <- factor(Cytobands_mapping$gieStain, levels = c("gneg", "gpos25","gpos50","gpos75","gpos100","acen","gvar","stalk"))
+
+```
+
+## Histones and histone marks plots
+
+#### Overlapped plots (failed)
+
+In the first attempt to generate a plot that would simultaneously show the distribution of the histone variants and the histone marks for each cytoband group, the boxplots overlapped in each category.
+
+```{r First plot}
+
+library(ggplot2)
+
+#Create grouped boxplot
+ggplot(Cytobands_mapping, aes(x = gieStain, y = H1_0_AJV32L, fill = "H1_0_AJV32L")) +
+  geom_boxplot(position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H1_2_AJV26F, fill = "H1_2_AJV26F"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H1_3_AJV124L, fill = "H1_3_AJV124L"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H1_4_AJV3, fill = "H1_4_AJV3"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H1_5_AJV30J, fill = "H1_5_AJV30J"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H1_X_AJV28H, fill = "H1_X_AJV28H"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = H3K9me3_SRR12349402, fill = "H3K9me3_SRR12349402"), 
+               position = position_dodge(width = 0.1)) +
+  geom_boxplot(aes(y = K27me3_Merged, fill = "K27me3_Merged"), 
+               position = position_dodge(width = 0.1)) +
+  labs(x = "G-bands", y = "ChIPseq data") +
+  scale_fill_manual(name = "Histone marks", 
+                    values = c("H1_0_AJV32L" = "coral1",
+                               "H1_2_AJV26F" = "sandybrown",
+                               "H1_3_AJV124L" = "gold",
+                               "H1_4_AJV3" = "yellowgreen",
+                               "H1_5_AJV30J" = "limegreen",
+                               "H1_X_AJV28H" = "turquoise",
+                               "H3K9me3_SRR12349402" = "steelblue1",
+                               "K27me3_Merged" = "slateblue1")) +
+  theme_light()
+
+```
+
+Trying another alternative was not successful either. However, a new dataframe was created, using the tidyr library, where all the ChIPseq signals were merged in one column (long format).
+
+```{r Alternative plot}
+
+library(ggplot2)
+library(tidyr)
+
+#Reshape the data frame into a longer format
+Cytobands_mapping_long <- pivot_longer(Cytobands_mapping,
+                                       cols = starts_with("H") | starts_with("K"),
+                                       names_to = "Histone_marks",
+                                       values_to = "ChIPseq_data")
+
+#Plot the data using a single geom_boxplot() call
+ggplot(Cytobands_mapping_long, aes(x = gieStain, y = ChIPseq_data, fill = Histone_marks)) +
+  geom_boxplot(position = position_dodge(width = 0.1)) +
+  #Set the axis labels and title
+  labs(x = "G-bands", y = "ChIPseq data", fill = "Histone marks") +
+  #Set the fill colors for each boxplot
+  scale_fill_manual(values = c("H1_0_AJV32L" = "coral1",
+                               "H1_2_AJV26F" = "sandybrown",
+                               "H1_3_AJV124L" = "gold",
+                               "H1_4_AJV3" = "yellowgreen",
+                               "H1_5_AJV30J" = "limegreen",
+                               "H1_X_AJV28H" = "turquoise",
+                               "H3K9me3_SRR12349402" = "steelblue1",
+                               "K27me3_Merged" = "slateblue1")) +
+  #Use the theme_light() theme
+  theme_light()
+
+```
+
+#### Separated plots (failed)
+
+Having into account that the gneg bands were not divided into four groups and no original category was excluded from the analysis, one plot for each cytoband category was mapped out.
+
+```{r Cytobands plot}
+
+#Plot the data using a single geom_boxplot() call
+ggplot(Cytobands_mapping_long, aes(x = Histone_marks, y = ChIPseq_data, fill = Histone_marks)) +
+  geom_boxplot() +
+  #Set the axis labels and title
+  labs(x = "Histone marks", y = "ChIPseq data", fill = "Histone marks") +
+  #Set the fill colors for each boxplot
+  scale_fill_manual(values = c("H1_0_AJV32L" = "coral1",
+                               "H1_2_AJV26F" = "sandybrown",
+                               "H1_3_AJV124L" = "gold",
+                               "H1_4_AJV3" = "yellowgreen",
+                               "H1_5_AJV30J" = "limegreen",
+                               "H1_X_AJV28H" = "turquoise",
+                               "H3K9me3_SRR12349402" = "steelblue1",
+                               "K27me3_Merged" = "slateblue1")) +
+  #Use the theme_light() theme
+  theme_light() +
+  scale_x_discrete(labels = function(x) sub("_[^_]*$", "", x)) +
+  #Add facet wrap by gieStain
+  facet_wrap(~gieStain, ncol = 2, scales = "free")
+
+```
+
+Nevertheless, it is wrong to construct these plots based on the cytobands categories: ChIPseq data can be compared within samples but not between them.
+
+Using the long format dataframe, it was possible to grouped up all the plots. However, the results are not very clear as there are single boxplots that includes high signal values. In order to fix this, the y-axis limits were modified to exclude those high values. Weird visualization was obtained.
+
+```{r Grouped up files plot}
+
+#No limit setting
+ggplot(Cytobands_mapping_long, aes(x = gieStain, 
+                                   y = ChIPseq_data, 
+                                   fill = gieStain, 
+                                   group = gieStain)) +
+  geom_boxplot(position = position_dodge(width = 0.1)) +
+  facet_wrap(~Histone_marks, ncol = 3) +
+  labs(x = "Cytobands", y = "ChIPseq data", fill = "Cytobands") +
+  scale_fill_manual(values = c("gneg" = "coral1",
+                               "gpos25" = "sandybrown",
+                               "gpos50" = "gold",
+                               "gpos75" = "yellowgreen",
+                               "gpos100" = "limegreen",
+                               "acen" = "turquoise",
+                               "gvar" = "steelblue1",
+                               "stalk" = "slateblue1")) +
+  theme_light()
+
+
+#Limit setting
+ggplot(Cytobands_mapping_long, aes(x = gieStain, 
+                                   y = ChIPseq_data, 
+                                   fill = gieStain, 
+                                   group = gieStain)) +
+  geom_boxplot(position = position_dodge(width = 0.1)) +
+  facet_wrap(~Histone_marks, ncol = 3) +
+  labs(x = "Cytobands", y = "ChIPseq data", fill = "Cytobands") +
+  scale_fill_manual(values = c("gneg" = "coral1",
+                               "gpos25" = "sandybrown",
+                               "gpos50" = "gold",
+                               "gpos75" = "yellowgreen",
+                               "gpos100" = "limegreen",
+                               "acen" = "turquoise",
+                               "gvar" = "steelblue1",
+                               "stalk" = "slateblue1")) +
+  theme_light() +
+  ylim(0, 0.4)
+```
+
+#### Successful plots
+
+According to Núria, these plots are enough for what it is asked. I was able to do one plot for each map file using a for loop.
+
+```{r Files plot}
+
+plot_titles <- names(Cytobands_mapping)
+plot_titles[6:13] <- c("H1.0", "H1.2", "H1.3", "H1.4", 
+                       "H1.5", "H1X", "H3K9me3", "H3K27me3")
+
+for (i in 6:13) {
+my_plot <- ggplot(Cytobands_mapping[, c(1:5, i)], aes(x = gieStain, 
+                                           y = Cytobands_mapping[, i], 
+                                           fill = gieStain, 
+                                           group = gieStain)) +
+           geom_boxplot(position = position_dodge(width = 0.1)) +
+           labs(x = "Cytobands", y = "Input-substracted ChIP-seq signal") +
+           scale_fill_manual(name = "Cytobands", 
+                             values = c("gneg" = "coral1",
+                                        "gpos25" = "sandybrown",
+                                        "gpos50" = "gold",
+                                        "gpos75" = "yellowgreen",
+                                        "gpos100" = "turquoise",
+                                        "acen" = "steelblue1",
+                                        "gvar" = "slateblue1",
+                                        "stalk" = "plum")) +
+           ggtitle(plot_titles[i]) +
+           theme_light() +
+           theme(legend.position = "none",
+                 title = element_text(size = 14),
+                 axis.title.x = element_blank(),
+                 axis.text.x = element_blank(),
+                 axis.title.y = element_blank(),
+                 axis.text.y = element_text(size = 14))
+  print(my_plot)
+  
+  #Extract the title and use it in the filename
+  title <- names(Cytobands_mapping)[i]
+  pngfile <- paste(title, ".png", sep = "")
+  
+  #Save the plot with the title in the filename
+  ggsave(pngfile, my_plot, width = 3, height = 3, dpi = 300)
+}
+
+```
+
+It would be a good idea to have all the separate plots in one merged plot. From the long format dataframe, a new long format dataframe was created by excluding the sample that contains those high values.
+
+```{r Grouped up files plot excluding one file}
+
+#Plot
+ggplot(Cytobands_mapping_long, aes(x = gieStain, y = ChIPseq_data, fill = gieStain)) +
+  geom_boxplot() +
+  labs(x = "Cytobands", y = "ChIPseq data") +
+  scale_fill_manual(name = "Cytobands", 
+                    values = c("gneg" = "coral1",
+                               "gpos25" = "sandybrown",
+                               "gpos50" = "gold",
+                               "gpos75" = "yellowgreen",
+                               "gpos100" = "limegreen",
+                               "acen" = "turquoise",
+                               "gvar" = "steelblue1",
+                               "stalk" = "slateblue1")) +
+  facet_wrap(~ Histone_marks, nrow = 2) +
+  theme_light()
+
+#Filter the data to exclude the "H3K9me3_SRR12349402" group
+Cytobands_mapping_long_filtered <- Cytobands_mapping_long[Cytobands_mapping_long$Histone_marks != "H3K9me3_SRR12349402",]
+
+#New plot
+ggplot(Cytobands_mapping_long_filtered, aes(x = gieStain, y = ChIPseq_data, fill = gieStain)) +
+  geom_boxplot() +
+  labs(x = "Cytobands", y = "ChIPseq data") +
+  scale_fill_manual(name = "Cytobands", 
+                    values = c("gneg" = "coral1",
+                               "gpos25" = "sandybrown",
+                               "gpos50" = "gold",
+                               "gpos75" = "yellowgreen",
+                               "gpos100" = "limegreen",
+                               "acen" = "turquoise",
+                               "gvar" = "steelblue1",
+                               "stalk" = "slateblue1")) +
+  facet_wrap(~ Histone_marks, nrow = 2) +
+  theme_light()
+
+```
+
+It is important to keep in mind that different values of different ChIPseq samples cannot be compared, only the boxplots of each plot can be compared.

@@ -1,0 +1,354 @@
+---
+title: "Corrected TEs Analysis"
+author: "Nel Marín"
+date: "20/6/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import mapping files
+
+```{r Files, echo=FALSE}
+
+#Set the working directory
+setwd("~/TFM/12_Corrected_results")
+
+#Load the TSV file using read.delim()
+dataframe_complete <- read.delim("~/TFM/5_TEs_mapping_&_repeat_analysis/thedataframe_complete.tsv", header = FALSE, stringsAsFactors = FALSE)
+
+#Change the column names
+colnames(dataframe_complete) <- c("seqname", "source", "feature", "start", "end",
+                                  "score", "strand", "frame", "class", "family",
+                                  "group", "H1.0", "H1.2",  "H1.3", "H1.4", "H1.5",
+                                  "H1X","H3K9me3", "H3K27me3",
+                                  "K9me3_AJV7", "K9me3_AJV84X")
+
+```
+
+## 2. Create the actual dataframe
+
+```{r Dataframe}
+
+#Remove the H3K9me3 columns that we are not using
+new_dataframe_complete <- dataframe_complete[, c(1:19)]
+
+#New name for the H3K9me3 sample
+#colnames(new_dataframe_complete)[18] <- "K9me3"
+
+#Identify numeric columns
+numeric_cols <- sapply(new_dataframe_complete, is.numeric)
+
+#Change "start", "end" & "score" to FALSE (not numeric)
+numeric_cols[4:6] <- FALSE
+
+#Filter the dataframe
+new_filtered_dataframe_complete <- new_dataframe_complete[rowSums(new_dataframe_complete[, numeric_cols] != 0) > 0, ]
+rownames(new_filtered_dataframe_complete) <- seq(1:nrow(new_filtered_dataframe_complete))
+
+```
+
+## 3. Calculate the median abundance
+
+In this step, we will calculate the median abundance of each sample at the different levels of organization (class, family & group). In order to achieve this, we will create three dataframes, one for each level, where the rows will be the different classes, families or groups and the columns will be ten samples (histones & histone marks).
+
+#### 3.1. Class
+
+```{r Class abundance}
+
+#Create an empty dataframe to store the results
+df_class <- data.frame(matrix(nrow = 10, ncol = 8))
+#Set the columns names
+colnames(df_class) <- c("H1.0", "H1.2",  "H1.3", "H1.4", "H1.5", "H1X",
+                        "H3K9me3", "H3K27me3")
+#Extract the repeat classes and set as row names
+repeat_classes <- sort(unique(new_filtered_dataframe_complete$class))
+rownames(df_class) <- repeat_classes
+
+#Loop to calculate median values of each class and sample
+for (i in 1:length(repeat_classes)) {
+  current_class <- repeat_classes[i]
+  class_subset <- new_filtered_dataframe_complete[new_filtered_dataframe_complete$class == current_class, 12:19]
+  median_values <- apply(class_subset, 2, median)
+  df_class[i, ] <- c(median_values)
+}
+
+#Test if the results are correct
+#test_LINE <- dataframe_complete[dataframe_complete$class == "LINE", ]
+#summary(test_LINE)
+
+```
+
+#### 3.2. Family
+
+```{r Family abundance}
+
+#Create an empty dataframe to store the results
+df_family <- data.frame(matrix(nrow = 50, ncol = 8))
+#Set the columns names
+colnames(df_family) <- c("H1.0", "H1.2",  "H1.3", "H1.4", "H1.5", "H1X",
+                         "H3K9me3", "H3K27me3")
+#Extract the repeat families and set as row names
+repeat_families <- sort(unique(new_filtered_dataframe_complete$family))
+rownames(df_family) <- repeat_families
+
+#Loop to calculate median values of each family and sample
+for (i in 1:length(repeat_families)) {
+  current_family <- repeat_families[i]
+  family_subset <- new_filtered_dataframe_complete[new_filtered_dataframe_complete$family == current_family, 12:19]
+  median_values <- apply(family_subset, 2, median)
+  df_family[i, ] <- c(median_values)
+}
+
+#Test if the results are correct
+#test_Alu <- dataframe_complete[dataframe_complete$family == "Alu", ]
+#summary(test_Alu)
+
+```
+
+#### 3.3. Group
+
+```{r Group abundance}
+
+#Extract the repeat families and set as row names
+repeat_groups <- sort(unique(new_filtered_dataframe_complete$group))
+rownames(df_group) <- repeat_groups
+
+#Create an empty dataframe to store the results
+df_group <- data.frame(matrix(nrow = length(repeat_groups), ncol = 8))
+#Set the columns names
+colnames(df_group) <- c("H1.0", "H1.2",  "H1.3", "H1.4", "H1.5", "H1X",
+                        "H3K9me3", "H3K27me3")
+
+#Loop to calculate median values of each family and sample
+for (i in 1:length(repeat_groups)) {
+  current_group <- repeat_groups[i]
+  group_subset <- new_filtered_dataframe_complete[new_filtered_dataframe_complete$group == current_group, 12:19]
+  median_values <- apply(group_subset, 2, median)
+  df_group[i, ] <- c(median_values)
+}
+
+#Test if the results are correct
+#test_AluJo <- dataframe_complete[dataframe_complete$group == "AluJo", ]
+#summary(test_AluJo)
+
+```
+
+## 4. Scale the columns
+
+Before creating the heatmaps, it is necessary to scale the columns of the new dataframes that contain numerical information (all of them).
+
+```{r Scaling}
+
+#Scale the new dataframes
+df_class_scaled <- scale(df_class)
+df_family_scaled <- scale(df_family)
+df_group_scaled <- scale(df_group)
+
+```
+
+## 5. Create the heatmaps
+
+#### 5.1. Class heatmap \[DONE\]
+
+```{r Class heatmap}
+
+library(ggplot2)
+library(pheatmap)
+
+#Create the annotation
+annotation_class <- data.frame(Class = repeat_classes)
+rownames(annotation_class) <- rownames(df_class_scaled)
+
+#Make sure the levels of the Class variable match the colors
+annotation_class$Class <- factor(annotation_class$Class, 
+                                 levels = unique(annotation_class$Class))
+
+#Define colors for each class
+class_colors <- c("#FB83DD", "#4DB8FF", "#C8C0A8", "#9898FC", "#C8F63F",
+                  "#6C99DA", "#FF4444", "#5EF49E", "#FFD700", "#FE934B")
+#class_colors <- rainbow(10)
+#class_colors[3] <- "#FFF700"
+#class_colors[5] <- "#00A642"
+#class_colors[7] <- "#008CFF"
+#class_colors[8] <- "#0400FF"
+#class_colors[9] <- "#9900FF"
+
+#Set the annotation colors
+annotation_class_colors <- list(Class = setNames(class_colors, levels(annotation_class$Class)))
+
+#Plot the heatmap
+c <- pheatmap(df_class_scaled, 
+              color = colorRampPalette(c("blue3", "white", "firebrick1"))(100),
+              cutree_cols = 2, 
+              cutree_rows = 4,
+              annotation_row = annotation_class,
+              annotation_colors = annotation_class_colors)
+
+#Plot the heatmap without the samples K9me3_AJV7 & K9me3_AJV84X
+#df_class_scaled_filtered <- df_class_scaled[, -c(9, 10)]
+#C <- pheatmap(df_class_scaled_filtered, 
+#              color = colorRampPalette(c("blue3", "white", "firebrick1"))(100),
+#              cutree_cols = 2, 
+#              cutree_rows = 4,
+#              annotation_row = annotation_class,
+#              annotation_colors = annotation_class_colors)
+
+#Export the plots
+ggsave("heatmap_class_FINAL.png", plot = c, width = 10, height = 4, dpi = 300)
+#ggsave("heatmap_class_NEW.png", plot = C, width = 10, height = 5, dpi = 300)
+
+```
+
+#### 5.2. Family heatmap \[DONE\]
+
+```{r Family heatmap}
+
+library(ggplot2)
+library(pheatmap)
+
+#Create the annotation
+class_family <- new_filtered_dataframe_complete[, c(9, 10)]
+annotation_family <- subset(class_family, !duplicated(class_family))
+annotation_family <- annotation_family[order(annotation_family$class), ]
+rownames(annotation_family) <- annotation_family[, 2]
+annotation_family <- annotation_family[, -2, drop = FALSE]
+
+#Make sure the levels of the Class variable match the colors
+annotation_family$class <- factor(annotation_family$class, 
+                                  levels = unique(annotation_family$class))
+
+#Set the annotation colors
+annotation_family_colors <- list(
+  class = setNames(class_colors, levels(annotation_family$class)))
+
+#Plot the heatmap
+f <- pheatmap(df_family_scaled, 
+              color = colorRampPalette(c("blue3", "white", "firebrick1"))(100),
+              cutree_cols = 2, 
+              cutree_rows = 4,
+              annotation_row = annotation_family,
+              annotation_colors = annotation_family_colors)
+
+#Plot the heatmap without the samples K9me3_AJV7 & K9me3_AJV84X
+#df_family_scaled_filtered <- df_family_scaled[, -c(9, 10)]
+#P <- pheatmap(df_family_scaled_filtered, 
+#              color = colorRampPalette(c("blue3", "white", "firebrick1"))(100),
+#              cutree_cols = 2, 
+#              cutree_rows = 4,
+#              annotation_row = annotation_family,
+#              annotation_colors = annotation_family_colors)
+
+#Export the plot
+ggsave("heatmap_family.png", plot = f, width = 6, height = 10, dpi = 300)
+#ggsave("heatmap_family_NEW.png", plot = P, width = 6, height = 10, dpi = 300)
+
+```
+
+#### 5.3. Group heatmap
+
+##### 5.3.1. Group heatmap split by class
+
+```{r Group heatmap split by class}
+
+library(ggplot2)
+library(pheatmap)
+
+#Create the annotation
+class_group <- new_filtered_dataframe_complete[, c(9, 11)]
+annotation_group <- subset(class_group, !duplicated(class_group))
+annotation_group <- annotation_group[order(annotation_group$class), ]
+rownames(annotation_group) <- annotation_group[, 2]
+annotation_group <- annotation_group[, -2, drop = FALSE]
+
+#Make sure the levels of the Class variable match the colors
+annotation_group$class <- factor(annotation_group$class, 
+                                  levels = unique(annotation_group$class))
+
+#Set the annotation colors
+annotation_group_colors <- list(
+  class = setNames(class_colors, levels(annotation_group$class)))
+
+#Prepare the input for the loop
+df_merged <- merge(df_group_scaled, annotation_group, 
+                   by = "row.names", row.names = 1)
+rownames(df_merged) <- df_merged[, 1]
+df_merged <- df_merged[, -1, drop = FALSE]
+df_list <- split(df_merged, df_merged$class)
+
+#########################################################
+#NEW ANNOTATION: FAMILY IN COLOUR GRADIENT
+#Use annotation_v2
+class_family_group <- new_filtered_dataframe_complete[, c(9, 10, 11)]
+annotation_v2 <- subset(class_family_group, !duplicated(class_family_group))
+rownames(annotation_v2) <- seq(1,nrow(annotation_v2))
+
+#Family colors
+family_colors <- colorRampPalette(c("#FF0000", "white"))(23)
+#Check the color gradient
+#image(matrix(1:23, ncol=1), col = family_colors)
+family_colors <- append(family_colors, colorRampPalette(c("#FF9900", "white"))(9))
+family_colors <- append(family_colors, "#FFF700")
+family_colors <- append(family_colors, colorRampPalette(c("#33FF00", "white"))(6))
+family_colors <- append(family_colors, "#00A642")
+family_colors <- append(family_colors, "#00FFFF")
+family_colors <- append(family_colors, colorRampPalette(c("#008CFF", "white"))(4))
+family_colors <- append(family_colors, colorRampPalette(c("#0400FF", "white"))(3))
+family_colors <- append(family_colors, "#9900FF")
+family_colors <- append(family_colors, "#FF0099")
+
+#Set the annotation colors
+class_family_group <- unique(class_family_group)
+class_family_group <- class_family_group[order(class_family_group$class,
+                                               class_family_group$family,
+                                               class_family_group$group), ]
+rownames(class_family_group) <- seq(1, nrow(class_family_group))
+class_family_group$family <- factor(class_family_group$family, 
+                                    levels = unique(class_family_group$family))
+annotation_group_colors_NEW <- list(
+  class = setNames(class_colors, levels(annotation_group$class)),
+  family = setNames(family_colors, levels(class_family_group$family)))
+#########################################################
+
+for (i in 1:length(df_list)) {
+  df_class <- df_list[[i]]
+  df_class <- df_class[, -ncol(df_class)] #Remove the last column
+  displayed_family <- class_family_group[class_family_group$class == names(df_list[i]), "family"]
+  displayed_family <- as.vector(unique(displayed_family))
+  subannotation_v2 <- annotation_v2[annotation_v2$family %in% displayed_family, ]
+  subannotation_group_colors_NEW <- annotation_group_colors_NEW
+  subannotation_group_colors_NEW[[2]] <- annotation_group_colors_NEW[[2]][names(annotation_group_colors_NEW[[2]]) %in% displayed_family]
+  if (nrow(df_class) == 1) { 
+    g <- pheatmap(df_class,
+                  main = names(df_list)[i],
+                  cluster_rows = FALSE,
+                  cutree_cols = 2, 
+                  annotation_row = subannotation_v2,
+                  annotation_colors = subannotation_group_colors_NEW,
+                  color = colorRampPalette(c("blue3", "white", "firebrick1"))(100))
+    ggsave(paste0("heatmap_group_C_", names(df_list)[i], ".png"),
+           plot = g, dpi = 300, width = 8, height = 3, limitsize = FALSE)
+  } else {
+    g <- pheatmap(df_class,
+                  main = names(df_list)[i],
+                  cutree_cols = 2, 
+                  annotation_row = subannotation_v2,
+                  annotation_colors = subannotation_group_colors_NEW,
+                  color = colorRampPalette(c("blue3", "white", "firebrick1"))(100))
+    if (nrow(df_class) < 10) {
+      ggsave(paste0("heatmap_group_C_", names(df_list)[i], ".png"), 
+             plot = g, width = 8, height = 4, dpi = 300)
+    } else if (nrow(df_class) < 100) {
+      ggsave(paste0("heatmap_group_C_", names(df_list)[i], ".png"), 
+             plot = g, width = 16, height = 10, dpi = 300)
+    } else {
+      ggsave(paste0("heatmap_group_C_", names(df_list)[i], ".png"), 
+             plot = g, width = 8, height = 49, dpi = 300)
+    }
+  }
+}
+```
+
+##### 4.3.3. Grou
